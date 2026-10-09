@@ -1,0 +1,63 @@
+
+name: Deploy Chatbot Frontend to New EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: |
+          docker build -t chatbot-frontend:latest .
+
+      - name: Save Docker image
+        run: |
+          docker save chatbot-frontend:latest -o chatbot-frontend.tar
+
+      - name: Copy Docker image to EC2
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "chatbot-frontend.tar"
+          target: "/home/ubuntu/chatbot-deploy/"
+
+      - name: Deploy container on EC2 port 4050
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+
+            cd /home/ubuntu/chatbot-deploy
+
+            sudo docker load -i chatbot-frontend.tar
+
+            sudo docker rm -f chatbot-frontend || true
+
+            sudo docker run -d \
+              --name chatbot-frontend \
+              --restart unless-stopped \
+              -p 4050:4000 \
+              chatbot-frontend:latest
+
+            sudo docker ps
+            sudo docker logs --tail 50 chatbot-frontend
+
+            rm -f chatbot-frontend.tar
+
